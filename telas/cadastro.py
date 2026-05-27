@@ -1,8 +1,10 @@
 from PIL import Image, ImageDraw
 import customtkinter as ctk
 from funcoes.BancoDeDados import produto_ja_existe
-
+import os
+from CTkMessagebox import CTkMessagebox
 from funcoes.BancoDeDados import salvar_produto, conectar_banco
+
 
 class TelaCadastro(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -29,23 +31,20 @@ class TelaCadastro(ctk.CTkFrame):
     def desenhar_elementos(self):
         # LOGO
         tamanho_logo = 200
-        tamanho_logo = 200
 
         diretorio_telas = os.path.dirname(os.path.abspath(__file__))
 
-        caminho_real_imagem = os.path.join(diretorio_telas, "...", "imagem.jpg")
+        caminho_real_imagem = os.path.join(diretorio_telas, "..", "imagem.jpg")
 
-        imagem_cortada = self.criar_quarto_circulo(caminho_imagem=caminho_real_imagem, tamanho_logo=tamanho_logo)
-        
-        imagem_cortada = self.criar_quarto_circulo("imagem.jpg", tamanho_logo)
+        imagem_cortada = self.criar_quarto_circulo(caminho_imagem=caminho_real_imagem, tamanho=tamanho_logo)
 
-        foto_logo = ctk.CTkImage(
+        self.foto_logo = ctk.CTkImage(
             light_image=imagem_cortada,
             dark_image=imagem_cortada,
             size=(tamanho_logo, tamanho_logo)
         )
 
-        label_logo = ctk.CTkLabel(self, image=foto_logo, text="")
+        label_logo = ctk.CTkLabel(self, image=self.foto_logo, text="")
         label_logo.grid(row=0, column=1, rowspan=4, sticky="ne", padx=(0, 0))
 
         # NOME
@@ -122,11 +121,21 @@ class TelaCadastro(ctk.CTkFrame):
         indicacao_tela = self.entry_indicacao.get("1.0", "end-1c").strip()
 
         if not nome_tela or not dosagem_tela:
-            self.lbl_mensagem.configure(text="⚠️ Nome e Dosagem sao obrigatorios!", text_color="#ff4444")
+            CTkMessagebox(
+                title="Campos Obrigatorios",
+                message="⚠️ Nome e Dosagem sao obrigatorios para o cadastro!",
+                icon="warning",
+                option_1="Entendido"
+            )
             return
 
         if produto_ja_existe(nome_tela, dosagem_tela):
-            self.lbl_mensagem.configure(text=f"❌ O produto '{nome_tela}' - '{dosagem_tela}' ja esta cadastrado!", text_color="#ff4444")
+            CTkMessagebox(
+                title="Produto Ja Cadastrado",
+                message=f"❌ O produto '{nome_tela} {dosagem_tela}' ja existe no sistema!",
+                icon="warning",
+                option_1="Voltar"
+            )
             return
 
         try:
@@ -138,11 +147,16 @@ class TelaCadastro(ctk.CTkFrame):
             quantidade_tela = int(self.entry_quantidade.get())
         except ValueError:
             quantidade_tela = 0
-        if nome_tela:
-            salvar_produto(nome_tela, dosagem_tela, preco_tela, quantidade_tela, laboratorio_tela, indicacao_tela)
 
-            self.lbl_mensagem.configure(text="✅ Produto cadastrado com sucesso!", text_color="#2a994d")
-            self.after(3000, lambda: self.lbl_mensagem.configure(text=""))
+        sucesso = salvar_produto(nome_tela, dosagem_tela, preco_tela, quantidade_tela, laboratorio_tela)
+
+        if sucesso:
+            CTkMessagebox(
+                title="Sucesso",
+                message=f"✅ O produto '{nome_tela}' foi cadastrado com sucesso!",
+                icon="check",
+                option_1="OK"
+            )
 
             self.entry_nome.delete(0, "end")
             self.entry_dosagem.delete(0, "end")
@@ -150,6 +164,13 @@ class TelaCadastro(ctk.CTkFrame):
             self.entry_quantidade.delete(0, "end")
             self.entry_laboratorio.delete(0, "end")
             self.entry_indicacao.delete("1.0", "end")
-
             self.entry_nome.focus()
+
+        else:
+            CTkMessagebox(
+                title="Erro no Banco",
+                message="❌ Erro interno ao tentar salvar o produto no banco de dados.",
+                icon="cancel",
+                option_1="OK"
+            )
 
