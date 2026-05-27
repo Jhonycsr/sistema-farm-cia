@@ -1,4 +1,6 @@
+import sqlite3
 import customtkinter as ctk
+from customtkinter import CTkLabel
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib as plt
@@ -77,21 +79,27 @@ class TelaVendas(ctk.CTkFrame):
 
     def obter_totais_gerais(self):
         conexao = conectar_banco()
-        cursor = conexao.cursor()
+        if conexao is None:
+            return 0.0, 0, 0.0
+        try:
+            cursor = conexao.cursor()
 
-        cursor.execute("SELECT SUM(valor_total), COUNT(id) FROM movimentacoes WHERE tipo = 'VENDA'")
-        res_vendas = cursor.fetchone()
-        faturamento = res_vendas[0] if res_vendas[0] else 0.0
-        total_vendas = res_vendas[1] if res_vendas[1] else 0
+            cursor.execute("SELECT SUM(valor_total), COUNT(id) FROM movimentacoes WHERE tipo = 'VENDA'")
+            res_vendas = cursor.fetchone()
+            faturamento = res_vendas[0] if res_vendas[0] else 0.0
+            total_vendas = res_vendas[1] if res_vendas[1] else 0
 
-        cursor.execute("SELECT SUM(valor_total) FROM movimentacoes WHERE tipo = 'REPOSICAO'")
-        res_gastos = cursor.fetchone()
-        gastos = res_gastos[0] if res_gastos[0] else 0.0
+            cursor.execute("SELECT SUM(valor_total) FROM movimentacoes WHERE tipo = 'REPOSICAO'")
+            res_gastos = cursor.fetchone()
+            gastos = res_gastos[0] if res_gastos[0] else 0.0
 
-        saldo_caixa = faturamento - gastos
-        conexao.close()
-        return faturamento, total_vendas, saldo_caixa
-
+            saldo_caixa = faturamento - gastos
+            return faturamento, total_vendas, saldo_caixa
+        except sqlite3.Error as e:
+            print(f"❌ Erro ao calcular totais do dashboard: {e}")
+            return 0.0, 0, 0.0
+        finally:
+            conexao.close()
 
     def atualizar_dashboard(self):
         fat, qtd, lucro = self.obter_totais_gerais()
@@ -115,21 +123,23 @@ class TelaVendas(ctk.CTkFrame):
             w.destroy()
 
         if not movimentacoes:
-            ctk.CTkLabel(self.feed_scroll, text="Nenhuma ativade medica registrada.", text_color="#555", font=("Arial", 12)).pack(pady=20)
+            ctk.CTkLabel(self.feed_scroll, text="Nenhuma atividade médica registrada.", text_color="#555",
+                         font=("Arial", 12)).pack(pady=20)
         else:
             for tipo, quantidade, valor_total, data, nome, dosagem, lab in movimentacoes:
-                item_frame = ctk.CTkFrame(self.feed_scroll, fg_color="#1a1a1a", corner_radius=8, border_width=1, border_color="#222")
+                item_frame = ctk.CTkFrame(self.feed_scroll, fg_color="#1a1a1a", corner_radius=8, border_width=1,
+                                          border_color="#222")
                 item_frame.pack(fill="x", pady=6, padx=5)
 
                 valor_formatado = f"{valor_total:,.2f}".replace(".", ",")
 
                 if tipo == "VENDA":
                     texto_acao = f"💊 {nome} ({dosagem})"
-                    texto_sub = f"Saida de estoque • Lab: {lab} • {data}"
+                    texto_sub = f"Saída de estoque • Lab: {lab} • {data}"
                     texto_preco = f"+ R$ {valor_formatado}"
                     cor_preco = "#2a944d"
                 else:
-                    texto_acao = f"📦 Reposiçao: {nome}"
+                    texto_acao = f"📦 Reposição: {nome}"
                     texto_sub = f"Entrada de +{quantidade} un. • Fornecedor • {data}"
                     texto_preco = f"- R$ {valor_formatado}"
                     cor_preco = "#942a2a"
@@ -137,11 +147,26 @@ class TelaVendas(ctk.CTkFrame):
                 lbl_valor = ctk.CTkLabel(item_frame, text=texto_preco, font=("Arial", 13, "bold"), text_color=cor_preco)
                 lbl_valor.pack(side="right", padx=15, pady=10)
 
-                lbl_info = ctk.CTkLabel(item_frame, text=texto_acao, font=("Arial", 12, "bold"), anchor="w", justify="left")
-                lbl_info.pack(fill="x", padx=(15, 5), pady=(8, 0), anchor="w")
+                lbl_info = CTkLabel(
+                    item_frame,
+                    text=texto_acao,
+                    font=("Arial", 12, "bold"),
+                    anchor="w",
+                    justify="left",
+                    wraplength=180
+                )
+                lbl_info.pack(fill="x", padx=(12, 5), pady=(8, 2), anchor="w")
 
-                lbl_sub = ctk.CTkLabel(item_frame, text=texto_sub, font=("Arial", 10), text_color="#666", anchor="w", justify="left")
-                lbl_sub.pack(fill="x", padx=(15, 0), pady=(0, 8), anchor="w")
+                lbl_sub = ctk.CTkLabel(
+                    item_frame,
+                    text=texto_sub,
+                    font=("Arial", 10),
+                    text_color="#666",
+                    anchor="w",
+                    justify="left",
+                    wraplength=180
+                )
+                lbl_sub.pack(fill="x", padx=(12, 5), pady=(0, 8), anchor="w")
 
                 self.vincular_scroll_mouse(item_frame)
 
