@@ -29,6 +29,14 @@ class TelaCadastro(ctk.CTkFrame):
     def desenhar_elementos(self):
         # LOGO
         tamanho_logo = 200
+        tamanho_logo = 200
+
+        diretorio_telas = os.path.dirname(os.path.abspath(__file__))
+
+        caminho_real_imagem = os.path.join(diretorio_telas, "...", "imagem.jpg")
+
+        imagem_cortada = self.criar_quarto_circulo(caminho_imagem=caminho_real_imagem, tamanho_logo=tamanho_logo)
+        
         imagem_cortada = self.criar_quarto_circulo("imagem.jpg", tamanho_logo)
 
         foto_logo = ctk.CTkImage(
