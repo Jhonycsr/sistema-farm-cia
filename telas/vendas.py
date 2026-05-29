@@ -5,8 +5,8 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib as plt
 from matplotlib.lines import lineStyles
-
-from funcoes.BancoDeDados import conectar_banco, buscar_historico_movimentacoes, dados_dashboard_7_dias
+from funcoes.BancoDeDados import conectar_banco, buscar_historico_movimentacoes, dados_dashboard_7_dias, contar_estoque_critico
+import unicodedata
 
 class TelaVendas(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -17,7 +17,7 @@ class TelaVendas(ctk.CTkFrame):
 
         self.frame_cards = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_cards.pack(fill="x", pady=(0, 15))
-        self.frame_cards.grid_columnconfigure((0, 1, 2), weight=1)
+        self.frame_cards.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
         self.labels_valores = {}
         self.criar_cards_fixos()
@@ -25,7 +25,7 @@ class TelaVendas(ctk.CTkFrame):
         self.frame_inferior = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_inferior.pack(fill="both", expand=True)
         self.frame_inferior.grid_columnconfigure(0, weight=3)
-        self.frame_inferior.grid_columnconfigure(1, weight=2)
+        self.frame_inferior.grid_columnconfigure(1, weight=3)
         self.frame_inferior.grid_rowconfigure(0, weight=1)
 
         self.frame_grafico = ctk.CTkFrame(self.frame_inferior, fg_color="#141414", corner_radius=12, border_width=1, border_color="#2b2b2b")
@@ -35,6 +35,14 @@ class TelaVendas(ctk.CTkFrame):
         self.frame_feed_container.grid(row=0, column=1, sticky="nsew")
 
         ctk.CTkLabel(self.frame_feed_container, text="🕒 Fluxo de Saidas e Entradas", font=("Arial", 14, "bold"), text_color="#00adb5").pack(pady=12, padx=15, anchor="w")
+
+        self.frame_filtros = ctk.CTkFrame(self.frame_feed_container, fg_color="transparent")
+        self.frame_filtros.pack(fill="x", padx=15, pady=(0, 10))
+
+        self.ent_busca = ctk.CTkEntry(self.frame_filtros, placeholder_text="🔍 Buscar produto, tipo ou lab...", height=30)
+        self.ent_busca.pack(fill="x", side="top", pady=(0, 5))
+
+        self.ent_busca.bind("<KeyRelease>", lambda event: self.agendar_filtro())
 
         self.feed_scroll = ctk.CTkScrollableFrame(self.frame_feed_container, fg_color="transparent")
         self.feed_scroll.pack(fill="both", expand=True, padx=5, pady=(0, 10))
@@ -46,8 +54,12 @@ class TelaVendas(ctk.CTkFrame):
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.frame_grafico)
         self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
 
+        self.historico_completo = []
         self.historico_anterior = None
 
+        self.search_timer = None
+
+        self.atualizar_dashboard()
         self.loop_atualizacao_automatica()
 
 
@@ -63,7 +75,8 @@ class TelaVendas(ctk.CTkFrame):
         cards_confg = [
             ("faturamento", "Faturamento Bruto"),
             ("vendas", "Vendas Efetuadas"),
-            ("saldo", "Saldo em Caixa")
+            ("saldo", "Saldo em Caixa"),
+            ("alerta", "Estoque Critico ( < 5 un")
         ]
 
         for idx, (chave, titulo) in enumerate(cards_confg):
@@ -103,6 +116,7 @@ class TelaVendas(ctk.CTkFrame):
 
     def atualizar_dashboard(self):
         fat, qtd, lucro = self.obter_totais_gerais()
+        itens_criticos = contar_estoque_critico(limite=5)
 
         self.labels_valores["faturamento"].configure(text=f"R$ {fat:,.2f}".replace(".", ","), text_color="#1f538d")
         self.labels_valores["vendas"].configure(text=str(qtd), text_color="#2aa198")
@@ -111,67 +125,115 @@ class TelaVendas(ctk.CTkFrame):
             text_color="#2a944d" if lucro >= 0 else "#942a2a"
         )
 
-        movimentacoes = buscar_historico_movimentacoes()
+        if itens_criticos > 0:
+            texto_alerta = f"⚠️ {itens_criticos} PRODUTOS"
+            cor_alerta = "#942a2a"
 
-        if self.historico_anterior == movimentacoes:
-            self.renderizar_grafico_moderno()
+        else:
+            texto_alerta = "✅ Tudo OK"
+            cor_alerta = "#666"
+
+        self.labels_valores["alerta"].configure(text=texto_alerta, text_color=cor_alerta)
+
+        self.historico_completo = buscar_historico_movimentacoes()
+
+        if self.historico_anterior == self.historico_completo:
             return
 
-        self.historico_anterior = movimentacoes
+        self.historico_anterior = self.historico_completo
 
-        for w in self.feed_scroll.winfo_children():
-            w.destroy()
-
-        if not movimentacoes:
-            ctk.CTkLabel(self.feed_scroll, text="Nenhuma atividade médica registrada.", text_color="#555",
-                         font=("Arial", 12)).pack(pady=20)
-        else:
-            for tipo, quantidade, valor_total, data, nome, dosagem, lab in movimentacoes:
-                item_frame = ctk.CTkFrame(self.feed_scroll, fg_color="#1a1a1a", corner_radius=8, border_width=1,
-                                          border_color="#222")
-                item_frame.pack(fill="x", pady=6, padx=5)
-
-                valor_formatado = f"{valor_total:,.2f}".replace(".", ",")
-
-                if tipo == "VENDA":
-                    texto_acao = f"💊 {nome} ({dosagem})"
-                    texto_sub = f"Saída de estoque • Lab: {lab} • {data}"
-                    texto_preco = f"+ R$ {valor_formatado}"
-                    cor_preco = "#2a944d"
-                else:
-                    texto_acao = f"📦 Reposição: {nome}"
-                    texto_sub = f"Entrada de +{quantidade} un. • Fornecedor • {data}"
-                    texto_preco = f"- R$ {valor_formatado}"
-                    cor_preco = "#942a2a"
-
-                lbl_valor = ctk.CTkLabel(item_frame, text=texto_preco, font=("Arial", 13, "bold"), text_color=cor_preco)
-                lbl_valor.pack(side="right", padx=15, pady=10)
-
-                lbl_info = CTkLabel(
-                    item_frame,
-                    text=texto_acao,
-                    font=("Arial", 12, "bold"),
-                    anchor="w",
-                    justify="left",
-                    wraplength=180
-                )
-                lbl_info.pack(fill="x", padx=(12, 5), pady=(8, 2), anchor="w")
-
-                lbl_sub = ctk.CTkLabel(
-                    item_frame,
-                    text=texto_sub,
-                    font=("Arial", 10),
-                    text_color="#666",
-                    anchor="w",
-                    justify="left",
-                    wraplength=180
-                )
-                lbl_sub.pack(fill="x", padx=(12, 5), pady=(0, 8), anchor="w")
-
-                self.vincular_scroll_mouse(item_frame)
-
+        self.historico_anterior = self.historico_completo
+        self.filtrar_movimentacoes()
         self.renderizar_grafico_moderno()
 
+    def filtrar_movimentacoes(self):
+        self.search_timer = None
+
+        termo_busca = self.remover_acentos_e_cedliha(self.ent_busca.get())
+
+        widgets_antigos = self.feed_scroll.winfo_children()
+
+        if not self.historico_completo:
+            for w in widgets_antigos: w.destroy()
+            ctk.CTkLabel(self.feed_scroll, text="Nenhuma atividade registrada.", text_color="#555",
+                         font=("Arial", 12)).pack(pady=20)
+            return
+
+        registros_exibidos = 0
+        novos_widgets = []
+
+        for item in self.historico_completo:
+            tipo, quantidade, valor_total, data, nome, dosagem, lab, usuario = item
+
+            texto_busca_alvo = f"{tipo} {nome} {dosagem} {lab} {data}".lower()
+            texto_busca_alvo = self.remover_acentos_e_cedliha(texto_busca_alvo)
+
+            if termo_busca and termo_busca not in texto_busca_alvo:
+                continue
+
+            registros_exibidos += 1
+
+            item_frame = ctk.CTkFrame(self.feed_scroll, fg_color="#1a1a1a", corner_radius=6, border_width=1,
+                                      border_color="#222")
+
+            valor_formatado = f"{valor_total:,.2f}".replace(".", ",")
+
+            if str(tipo).upper() == "VENDA":
+                texto_acao = f"💊 {nome} ({dosagem})"
+                texto_sub = f"Saída de estoque • Por: {usuario} • Lab: {lab} • {data}"
+                texto_preco = f"+ R$ {valor_formatado}"
+                cor_preco = "#2a944d"
+            else:
+                texto_acao = f"📦 Reposição: {nome}"
+                texto_sub = f"Entrada de +{quantidade} un. • Fornecedor • {data}"
+                texto_preco = f"- R$ {valor_formatado}"
+                cor_preco = "#942a2a"
+
+            lbl_valor = ctk.CTkLabel(item_frame, text=texto_preco, font=("Arial", 13, "bold"), text_color=cor_preco)
+            lbl_valor.pack(side="right", padx=15, pady=15)
+
+            frame_textos = ctk.CTkFrame(item_frame, fg_color="transparent")
+            frame_textos.pack(side="left", fill="both", expand=True, padx=10, pady=8)
+
+            lbl_info = CTkLabel(
+                frame_textos,
+                text=texto_acao,
+                font=("Arial", 12, "bold"),
+                anchor="w",
+                justify="left"
+            )
+            lbl_info.pack(side="top", fill="x", anchor="w", pady=(0, 2))
+
+            lbl_sub = ctk.CTkLabel(
+                frame_textos,
+                text=texto_sub,
+                font=("Arial", 11),
+                text_color="#888",
+                justify="left",
+                anchor="w"
+            )
+            lbl_sub.pack(side="top", fill="x", anchor="w")
+
+            frame_textos.bind(
+                "<Configure>",
+                lambda event, f=frame_textos, l1=lbl_info, l2=lbl_sub: [
+                    l1.configure(wraplength=max(100, f.winfo_width() - 20)),
+                    l2.configure(wraplength=max(100, f.winfo_width() - 20))
+                ]
+            )
+
+            self.vincular_scroll_mouse(item_frame)
+            novos_widgets.append(item_frame)
+
+        for w in widgets_antigos:
+            w.destroy()
+
+        for w in novos_widgets:
+            w.pack(fill="x", pady=4, padx=5)
+
+        if registros_exibidos == 0:
+            ctk.CTkLabel(self.feed_scroll, text="Nenhum resultado encontrado.", text_color="#555",
+                         font=("Arial", 12)).pack(pady=20)
 
     def renderizar_grafico_moderno(self):
         dados_banco = dados_dashboard_7_dias()
@@ -180,7 +242,6 @@ class TelaVendas(ctk.CTkFrame):
             dias = [row[0][-5:] for row in dados_banco if row[0]]
             valores = [float(row[1]) if row[1] is not None else 0.0 for row in dados_banco]
             vendas_qtd = [int(row[2]) if row[2] is not None else 0 for row in dados_banco]
-
         else:
             dias, valores, vendas_qtd = ["Sem dados"], [0.0], [0]
 
@@ -249,5 +310,24 @@ class TelaVendas(ctk.CTkFrame):
         self.canvas.draw_idle()
 
     def loop_atualizacao_automatica(self):
+        self.after(2000, self.loop_atualizacao_automatica)
         self.atualizar_dashboard()
-        self.after(5000, self.loop_atualizacao_automatica)
+
+
+    def remover_acentos_e_cedliha(self, texto):
+        if not texto:
+            return ""
+
+        texto = texto.lower().strip()
+        texto = texto.replace("ç", "c")
+
+        nfkd_form = unicodedata.normalize('NFKD', texto)
+        return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+
+
+    def agendar_filtro(self):
+        if self.search_timer is not None:
+            self.after_cancel(self.search_timer)
+
+        self.search_timer = self.after(300, self.filtrar_movimentacoes)
+
