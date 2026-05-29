@@ -148,7 +148,7 @@ class TelaCadastro(ctk.CTkFrame):
         except ValueError:
             quantidade_tela = 0
 
-        sucesso = salvar_produto(nome_tela, dosagem_tela, preco_tela, quantidade_tela, laboratorio_tela)
+        sucesso = salvar_produto(nome_tela, dosagem_tela, preco_tela, quantidade_tela, laboratorio_tela, "")
 
         if sucesso:
             CTkMessagebox(
